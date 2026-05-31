@@ -1,166 +1,153 @@
-"""Thin client for the Cosmo parent API.
+"""Client for the FiLIP (api.myfilip.com) backend behind COSMO.
 
-Auth model (reverse-engineered from the parent web portal):
-  * POST /otp/send    {email}        -> emails a one-time code
-  * POST /otp/verify  {otp, email}   -> sets an HttpOnly session cookie
-  * GET  /otp/refresh                -> renews the cookie (sliding, ~30 min)
-
-There is no bearer token; the session is purely the cookie, so we keep a
-private aiohttp CookieJar and persist it across restarts.
+Auth: email + password -> POST /v2/token -> {accessToken, refreshToken,
+expDate}. Access tokens are short-lived; renew via POST /v2/token/refresh, and
+fall back to a full re-login with the stored password if refresh fails.
 """
 
 from __future__ import annotations
 
 import logging
-import time
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
 
 from .const import (
-    OTP_REFRESH,
-    OTP_SEND,
-    OTP_VERIFY,
-    PARENT_BASE,
-    PORTAL_ORIGIN,
-    SESSION_TTL_SECONDS,
-    WEB_PORTAL_DEVICES,
+    APP_BUILD,
+    EP_MAP,
+    EP_TOKEN,
+    EP_TOKEN_REFRESH,
+    WHITE_LABEL_ID,
+    ep_settings,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class CosmoAuthError(Exception):
-    """Raised when the session is invalid and re-login (OTP) is required."""
+    """Invalid credentials / unrecoverable auth failure."""
 
 
 class CosmoApiError(Exception):
-    """Raised for non-auth API failures."""
+    """Non-auth API failure."""
+
+
+def _utc_offset_hours() -> int:
+    """Local UTC offset in hours for the x-accept-offset header."""
+    off = datetime.now(timezone.utc).astimezone().utcoffset()
+    return int(off.total_seconds() // 3600) if off else 0
 
 
 class CosmoClient:
-    """Stateful client holding the session cookie jar."""
+    """Holds tokens and talks to the FiLIP API."""
 
-    def __init__(self, session: aiohttp.ClientSession) -> None:
-        # `session` MUST be a private session with its own cookie jar so the
-        # Cosmo session cookie never leaks into Home Assistant's shared client.
+    def __init__(self, session: aiohttp.ClientSession, email: str, password: str) -> None:
         self._session = session
-        self._expires_at: float = 0.0
-
-    @property
-    def _headers(self) -> dict[str, str]:
-        # The API is cookie-authed but, like the web app, expects a matching
-        # Origin/Referer. Send them to avoid CSRF-style rejections.
-        return {
-            "Origin": PORTAL_ORIGIN,
-            "Referer": f"{PORTAL_ORIGIN}/",
-            "Content-Type": "application/json",
-        }
+        self._email = email
+        self._password = password
+        self._access: str | None = None
+        self._refresh: str | None = None
+        self._exp: datetime | None = None
 
     # --- auth -----------------------------------------------------------------
 
-    async def send_otp(self, email: str) -> None:
-        """Trigger an email OTP."""
-        await self._request("POST", OTP_SEND, json={"email": email}, auth=False)
-
-    async def verify_otp(self, email: str, otp: str) -> dict[str, Any]:
-        """Exchange the OTP for a session cookie (stored in the jar)."""
+    async def login(self) -> None:
         data = await self._request(
-            "POST", OTP_VERIFY, json={"otp": otp, "email": email}, auth=False
+            "POST",
+            EP_TOKEN,
+            json={
+                "appBuild": APP_BUILD,
+                "email": self._email,
+                "password": self._password,
+                "whiteLabelId": WHITE_LABEL_ID,
+            },
+            auth=False,
         )
-        self._mark_refreshed(data)
-        return data
+        self._store_tokens(data)
 
-    async def refresh(self) -> None:
-        """Renew the session cookie. Raises CosmoAuthError if it's dead."""
-        data = await self._request("GET", OTP_REFRESH, auth=False)
-        self._mark_refreshed(data)
+    async def _refresh_token(self) -> None:
+        if not self._refresh:
+            await self.login()
+            return
+        try:
+            data = await self._request(
+                "POST", EP_TOKEN_REFRESH, json={"refreshToken": self._refresh}
+            )
+            self._store_tokens(data)
+        except (CosmoAuthError, CosmoApiError):
+            # Refresh chain broke — re-login from scratch.
+            await self.login()
 
-    def _mark_refreshed(self, data: dict[str, Any]) -> None:
-        ttl = data.get("expiresIn", SESSION_TTL_SECONDS) if isinstance(data, dict) else SESSION_TTL_SECONDS
-        self._expires_at = time.monotonic() + ttl
+    def _store_tokens(self, payload: dict[str, Any]) -> None:
+        data = payload.get("data", payload) if isinstance(payload, dict) else {}
+        self._access = data.get("accessToken")
+        self._refresh = data.get("refreshToken")
+        exp = data.get("expDate")
+        if exp:
+            self._exp = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+        if not self._access:
+            raise CosmoAuthError("login/refresh returned no accessToken")
 
-    @property
-    def seconds_until_expiry(self) -> float:
-        return max(0.0, self._expires_at - time.monotonic())
+    async def _ensure_token(self) -> None:
+        from .const import TOKEN_REFRESH_MARGIN
+
+        if self._access is None:
+            await self.login()
+            return
+        if self._exp and datetime.now(timezone.utc) >= self._exp - TOKEN_REFRESH_MARGIN:
+            await self._refresh_token()
 
     # --- data -----------------------------------------------------------------
 
     async def get_devices(self) -> list[dict[str, Any]]:
-        """List watches on the account (each has imei, username, device_type)."""
-        data = await self._request("GET", WEB_PORTAL_DEVICES)
-        return data if isinstance(data, list) else []
+        """All watches on the account with their last-known location/battery."""
+        data = await self._request("GET", EP_MAP)
+        body = data.get("data", {}) if isinstance(data, dict) else {}
+        return body.get("Devices", []) or []
 
-    async def get_metadata(self, imei: str) -> dict[str, Any]:
-        """Last-known location/battery from the SERVER CACHE (no watch wake)."""
-        return await self._request(
-            "GET", f"{PARENT_BASE}/client-metadata/client/{imei}"
-        )
+    async def get_device(self, device_id: int | str) -> dict[str, Any] | None:
+        for d in await self.get_devices():
+            if str(d.get("id")) == str(device_id):
+                return d
+        return None
 
-    async def request_fresh_location(self, imei: str) -> dict[str, Any]:
-        """ON-DEMAND: ask the watch for a fresh GPS fix. Wakes the watch."""
-        return await self._request(
-            "GET", f"{PARENT_BASE}/client-metadata/client/{imei}/location"
-        )
-
-    async def get_steps(self, imei: str, start: str, end: str) -> int:
-        """Total steps over [start, end] (YYYY-MM-DD). Sums per-day rows."""
-        data = await self._request(
-            "GET",
-            f"{PARENT_BASE}/device-steps/client/{imei}",
-            params={"startDate": start, "endDate": end},
-        )
-        if isinstance(data, list):
-            return sum(int(row.get("steps", 0) or 0) for row in data)
-        return 0
-
-    async def get_call_count(self, imei: str, start: str, end: str) -> dict[str, Any]:
-        """{call_count, avg_call_duration} over the date range."""
-        return await self._request(
-            "GET",
-            f"{PARENT_BASE}/call-logs/client/{imei}/count",
-            params={"startDate": start, "endDate": end},
-        )
-
-    async def get_blocked_calls(self, imei: str, start: str, end: str) -> int:
-        """Blocked-call count over the date range."""
-        data = await self._request(
-            "GET",
-            f"{PARENT_BASE}/call-logs/client/{imei}/blocked-calls/count",
-            params={"startDate": start, "endDate": end},
-        )
-        return int(data.get("count", 0)) if isinstance(data, dict) else 0
-
-    async def get_message_summary(self, imei: str, start: str, end: str) -> dict[str, Any]:
-        """{totalMessagesSent, uniqueContactsMessaged} over the date range."""
-        return await self._request(
-            "GET",
-            f"{PARENT_BASE}/messages/client/{imei}/summary",
-            params={"imei": imei, "startDate": start, "endDate": end},
-        )
+    async def set_active_tracking(
+        self, device_id: int | str, enable: bool, duration: int, frequency: int
+    ) -> None:
+        """Turbo mode: wake the watch to report frequently (or stop)."""
+        body: dict[str, Any] = {
+            "activeTrackingDuration": duration,
+            "activeTrackingEnable": enable,
+            "activeTrackingFrequency": frequency,
+        }
+        await self._request("PUT", ep_settings(device_id), json=body)
 
     # --- transport ------------------------------------------------------------
 
     async def _request(
-        self,
-        method: str,
-        url: str,
-        *,
-        json: Any = None,
-        params: dict[str, Any] | None = None,
-        auth: bool = True,
+        self, method: str, url: str, *, json: Any = None, auth: bool = True
     ) -> Any:
+        if auth:
+            await self._ensure_token()
+        headers = {
+            "x-accept-version": "1.0",
+            "x-accept-offset": str(_utc_offset_hours()),
+            "Content-Type": "application/json; charset=UTF-8",
+        }
+        if auth and self._access:
+            headers["Authorization"] = f"Bearer {self._access}"
         try:
-            async with self._session.request(
-                method, url, json=json, params=params, headers=self._headers
-            ) as resp:
+            async with self._session.request(method, url, json=json, headers=headers) as resp:
+                text = await resp.text()
                 if resp.status in (401, 403):
                     raise CosmoAuthError(f"{method} {url} -> {resp.status}")
                 if resp.status >= 400:
-                    body = await resp.text()
-                    raise CosmoApiError(f"{method} {url} -> {resp.status}: {body[:200]}")
-                if resp.content_type == "application/json":
-                    return await resp.json()
-                return await resp.text()
+                    raise CosmoApiError(f"{method} {url} -> {resp.status}: {text[:200]}")
+                body = await resp.json() if text else {}
+                # FiLIP signals expired tokens with status 2 in a 200 envelope.
+                if isinstance(body, dict) and body.get("status") == 2:
+                    raise CosmoAuthError(body.get("message", "token expired"))
+                return body
         except aiohttp.ClientError as err:
             raise CosmoApiError(f"{method} {url} failed: {err}") from err

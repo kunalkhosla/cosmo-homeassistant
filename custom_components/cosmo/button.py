@@ -1,8 +1,9 @@
 """Button to request an on-demand fresh GPS fix from the watch.
 
-This is the ONLY action that wakes the watch. It is intentionally never
-called on a schedule — press it (or call the cosmo.request_location service
-from an automation) when you actually want a live pin.
+Enables FiLIP "active tracking" (turbo mode): the watch reports a fix every
+~10s for a few minutes. This is the ONLY action that wakes the watch — it is
+never triggered on a schedule. After enabling it we re-poll /v2/map a few
+times so the tracker reflects the fresh fix as it lands.
 """
 
 from __future__ import annotations
@@ -16,13 +17,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import CosmoConfigEntry
 from .api import CosmoApiError
+from .const import ACTIVE_TRACKING_DURATION, ACTIVE_TRACKING_FREQUENCY
 from .entity import CosmoEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-# The watch answers the locate command asynchronously; give it a moment, then
-# re-read the server cache so the tracker reflects the fresh fix.
-_REFRESH_DELAY = 8
+# Re-poll the map a handful of times after enabling turbo, so the fresh fix
+# shows up without waiting for the next scheduled coordinator update.
+_POLL_DELAYS = (8, 8, 12, 15)
 
 
 async def async_setup_entry(
@@ -37,20 +39,26 @@ async def async_setup_entry(
 
 
 class CosmoLocateButton(CosmoEntity, ButtonEntity):
-    """Request a fresh location now."""
+    """Request a fresh location now (turbo mode)."""
 
     _attr_translation_key = "request_location"
     _attr_icon = "mdi:crosshairs-gps"
 
     def __init__(self, coordinator, name, model) -> None:
         super().__init__(coordinator, name, model)
-        self._attr_unique_id = f"{coordinator.imei}_request_location"
+        self._attr_unique_id = f"{coordinator.device_id}_request_location"
 
     async def async_press(self) -> None:
         try:
-            await self.coordinator.client.request_fresh_location(self.coordinator.imei)
+            await self.coordinator.client.set_active_tracking(
+                self.coordinator.device_id,
+                enable=True,
+                duration=ACTIVE_TRACKING_DURATION,
+                frequency=ACTIVE_TRACKING_FREQUENCY,
+            )
         except CosmoApiError as err:
             _LOGGER.warning("Cosmo locate request failed: %s", err)
             return
-        await asyncio.sleep(_REFRESH_DELAY)
-        await self.coordinator.async_request_refresh()
+        for delay in _POLL_DELAYS:
+            await asyncio.sleep(delay)
+            await self.coordinator.async_request_refresh()

@@ -3,22 +3,17 @@
     "step": {
       "user": {
         "title": "Cosmo account",
-        "description": "Enter the email for your COSMO Mission Control / parent account. A one-time code will be emailed to you.",
-        "data": { "email": "Email" }
-      },
-      "otp": {
-        "title": "Enter login code",
-        "description": "Enter the one-time code sent to {email}.",
-        "data": { "otp": "Login code" }
+        "description": "Sign in with your COSMO / Mission Control parent account.",
+        "data": { "email": "Email", "password": "Password" }
       },
       "device": {
         "title": "Select watch",
-        "data": { "imei": "Watch" }
+        "data": { "device_id": "Watch" }
       }
     },
     "error": {
-      "send_failed": "Couldn't request a login code. Check the email and try again.",
-      "invalid_code": "That code wasn't accepted. Request a new one and retry."
+      "invalid_auth": "Wrong email or password.",
+      "cannot_connect": "Couldn't reach the COSMO service. Try again."
     },
     "abort": {
       "no_devices": "No watches were found on this account.",
@@ -28,17 +23,13 @@
   "entity": {
     "sensor": {
       "battery": { "name": "Battery" },
-      "location_updated_at": { "name": "Location updated" },
-      "address": { "name": "Address" },
-      "steps": { "name": "Steps today" },
-      "calls": { "name": "Calls today" },
-      "blocked_calls": { "name": "Calls blocked today" },
-      "messages": { "name": "Messages today" }
+      "charger_battery": { "name": "Charger battery" },
+      "last_fix": { "name": "Last location fix" },
+      "firmware": { "name": "Firmware" }
     },
     "binary_sensor": {
-      "charging": { "name": "Charging" },
-      "safe_zone": { "name": "In safe zone" },
-      "school_mode": { "name": "School mode" }
+      "emergency": { "name": "SOS / emergency" },
+      "powered_off": { "name": "Powered off" }
     },
     "button": {
       "request_location": { "name": "Request location" }

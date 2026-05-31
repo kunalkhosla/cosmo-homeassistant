@@ -16,14 +16,16 @@ class CosmoEntity(CoordinatorEntity[CosmoCoordinator]):
 
     def __init__(self, coordinator: CosmoCoordinator, name: str, model: str | None) -> None:
         super().__init__(coordinator)
+        d = coordinator.data or {}
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.imei)},
+            identifiers={(DOMAIN, str(coordinator.device_id))},
             name=name,
             manufacturer=MANUFACTURER,
             model=model or "JrTrack",
-            serial_number=coordinator.imei,
+            sw_version=d.get("firmwareVersion"),
+            serial_number=d.get("imei"),
         )
 
     @property
-    def _metadata(self) -> dict:
-        return (self.coordinator.data or {}).get("metadata") or {}
+    def _device(self) -> dict:
+        return self.coordinator.data or {}

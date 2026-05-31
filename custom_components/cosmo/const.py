@@ -1,4 +1,9 @@
-"""Constants for the Cosmo (JrTrack kids watch) integration."""
+"""Constants for the Cosmo (JrTrack kids watch) integration.
+
+The watch's real backend is the FiLIP platform (api.myfilip.com); COSMO is a
+white-label of it (whiteLabelId 18). All data + the live-locate ("active
+tracking" / turbo mode) go through this API.
+"""
 
 from __future__ import annotations
 
@@ -6,39 +11,34 @@ from datetime import timedelta
 
 DOMAIN = "cosmo"
 
-# API hosts (discovered from the Cosmo parent web portal).
-ACTIVATION_BASE = "https://activation.api.cosmotogether.com"
-PARENT_BASE = "https://parent.api.cosmotogether.com"
-PORTAL_ORIGIN = "https://parent.cosmotogether.com"
+API_BASE = "https://api.myfilip.com/v2"
+WHITE_LABEL_ID = 18
+APP_BUILD = "3.4.0.710"
 
-# Auth (passwordless OTP -> HttpOnly session cookie, ~30 min sliding expiry).
-OTP_SEND = f"{ACTIVATION_BASE}/otp/send"
-OTP_VERIFY = f"{ACTIVATION_BASE}/otp/verify"
-OTP_REFRESH = f"{ACTIVATION_BASE}/otp/refresh"
-OTP_LOGOUT = f"{ACTIVATION_BASE}/otp/logout"
+# Endpoints
+EP_TOKEN = f"{API_BASE}/token"
+EP_TOKEN_REFRESH = f"{API_BASE}/token/refresh"
+EP_MAP = f"{API_BASE}/map"
 
-# Data endpoints.
-WEB_PORTAL_DEVICES = f"{ACTIVATION_BASE}/web-portal/devices"
-WEB_PORTAL_PROFILE = f"{ACTIVATION_BASE}/web-portal/profile"
 
-# Session lifetime reported by /otp/verify and /otp/refresh (seconds).
-SESSION_TTL_SECONDS = 1800
-# Refresh well before expiry to keep the sliding session alive.
-REFRESH_MARGIN_SECONDS = 300
+def ep_settings(device_id: int | str) -> str:
+    return f"{API_BASE}/settings/{device_id}"
 
-# Poll the SERVER CACHE (not the watch) for last-known location/battery.
-# This never touches the watch — Cosmo's backend is updated by the watch on
-# its own cadence. Safe to poll gently.
+
+# Poll the server cache (last-known). Does NOT wake the watch.
 DEFAULT_SCAN_INTERVAL = timedelta(minutes=10)
-MIN_SCAN_INTERVAL = timedelta(minutes=2)
+# Refresh the access token this long before it expires.
+TOKEN_REFRESH_MARGIN = timedelta(minutes=2)
+
+# Active-tracking ("turbo"): wake the watch and have it report frequently.
+# Only triggered on-demand (button/service) — never on a schedule.
+ACTIVE_TRACKING_DURATION = 300   # seconds the watch stays in turbo
+ACTIVE_TRACKING_FREQUENCY = 10   # seconds between fixes while in turbo
 
 CONF_EMAIL = "email"
-CONF_OTP = "otp"
-CONF_IMEI = "imei"
-CONF_SCAN_INTERVAL = "scan_interval"
+CONF_PASSWORD = "password"  # noqa: S105
+CONF_DEVICE_ID = "device_id"
 
-# Service / entity for the ON-DEMAND fresh fix (the only call that wakes the
-# watch). Deliberately not on a schedule.
 SERVICE_REQUEST_LOCATION = "request_location"
 
 MANUFACTURER = "COSMO Together"

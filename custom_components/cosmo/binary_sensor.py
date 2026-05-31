@@ -1,4 +1,4 @@
-"""Binary sensors: charging, safe-zone, school mode."""
+"""Binary sensors: emergency (SOS) mode, powered off."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -26,23 +25,17 @@ class CosmoBinaryDescription(BinarySensorEntityDescription):
 
 BINARY_SENSORS: tuple[CosmoBinaryDescription, ...] = (
     CosmoBinaryDescription(
-        key="charging",
-        translation_key="charging",
-        device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda m: m.get("battery_charging"),
+        key="emergency",
+        translation_key="emergency",
+        device_class=BinarySensorDeviceClass.SAFETY,
+        icon="mdi:alarm-light",
+        value_fn=lambda d: bool(d.get("emergencyMode")),
     ),
     CosmoBinaryDescription(
-        key="safe_zone",
-        translation_key="safe_zone",
-        icon="mdi:shield-home",
-        value_fn=lambda m: m.get("safe_zone"),
-    ),
-    CosmoBinaryDescription(
-        key="school_mode",
-        translation_key="school_mode",
-        icon="mdi:school",
-        value_fn=lambda m: m.get("school_mode"),
+        key="powered_off",
+        translation_key="powered_off",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_fn=lambda d: bool(d.get("shutdown")),
     ),
 )
 
@@ -65,8 +58,8 @@ class CosmoBinarySensor(CosmoEntity, BinarySensorEntity):
     def __init__(self, coordinator, name, model, description: CosmoBinaryDescription) -> None:
         super().__init__(coordinator, name, model)
         self.entity_description = description
-        self._attr_unique_id = f"{coordinator.imei}_{description.key}"
+        self._attr_unique_id = f"{coordinator.device_id}_{description.key}"
 
     @property
     def is_on(self) -> bool | None:
-        return self.entity_description.value_fn(self._metadata)
+        return self.entity_description.value_fn(self._device)

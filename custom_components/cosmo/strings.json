@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Cosmo account",
+        "description": "Enter the email for your COSMO Mission Control / parent account. A one-time code will be emailed to you.",
+        "data": { "email": "Email" }
+      },
+      "otp": {
+        "title": "Enter login code",
+        "description": "Enter the one-time code sent to {email}.",
+        "data": { "otp": "Login code" }
+      },
+      "device": {
+        "title": "Select watch",
+        "data": { "imei": "Watch" }
+      }
+    },
+    "error": {
+      "send_failed": "Couldn't request a login code. Check the email and try again.",
+      "invalid_code": "That code wasn't accepted. Request a new one and retry."
+    },
+    "abort": {
+      "no_devices": "No watches were found on this account.",
+      "already_configured": "This watch is already set up."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": { "name": "Battery" },
+      "location_updated_at": { "name": "Location updated" },
+      "address": { "name": "Address" },
+      "steps": { "name": "Steps today" },
+      "calls": { "name": "Calls today" },
+      "blocked_calls": { "name": "Calls blocked today" },
+      "messages": { "name": "Messages today" }
+    },
+    "binary_sensor": {
+      "charging": { "name": "Charging" },
+      "safe_zone": { "name": "In safe zone" },
+      "school_mode": { "name": "School mode" }
+    },
+    "button": {
+      "request_location": { "name": "Request location" }
+    }
+  }
+}

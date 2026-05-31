@@ -72,7 +72,7 @@ class CosmoClient:
             return
         try:
             data = await self._request(
-                "POST", EP_TOKEN_REFRESH, json={"refreshToken": self._refresh}
+                "POST", EP_TOKEN_REFRESH, json={"refreshToken": self._refresh}, auth=False
             )
             self._store_tokens(data)
         except (CosmoAuthError, CosmoApiError):

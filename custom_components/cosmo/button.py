@@ -22,9 +22,11 @@ from .entity import CosmoEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-# Re-poll the map a handful of times after enabling turbo, so the fresh fix
-# shows up without waiting for the next scheduled coordinator update.
-_POLL_DELAYS = (8, 8, 12, 15)
+# Re-poll the map after enabling turbo so the fresh fix shows up without waiting
+# for the next scheduled coordinator update. Runs in the background (see async_press),
+# so the window is generous — a slow watch can take well over a minute to report.
+# Frequent early (most fixes land in 10-40s), spread out to ~2 minutes total.
+_POLL_DELAYS = (8, 8, 12, 15, 20, 25, 30)  # ~118s
 
 
 async def async_setup_entry(

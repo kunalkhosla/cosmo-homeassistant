@@ -59,6 +59,12 @@ class CosmoLocateButton(CosmoEntity, ButtonEntity):
         except CosmoApiError as err:
             _LOGGER.warning("Cosmo locate request failed: %s", err)
             return
+        # Re-poll in the background: the fresh fix takes ~40s to land, and we must
+        # NOT block the caller that long (a voice agent's whole turn would hang).
+        # The press returns now; the tracker/sensors update as the fix arrives.
+        self.hass.async_create_task(self._poll_for_fix(), name="cosmo_locate_poll")
+
+    async def _poll_for_fix(self) -> None:
         for delay in _POLL_DELAYS:
             await asyncio.sleep(delay)
             await self.coordinator.async_request_refresh()

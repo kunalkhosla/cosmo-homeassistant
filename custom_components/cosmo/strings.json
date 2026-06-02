@@ -4,11 +4,16 @@
       "user": {
         "title": "Cosmo account",
         "description": "Sign in with your COSMO / Mission Control parent account.",
-        "data": { "email": "Email", "password": "Password" }
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
       },
       "device": {
         "title": "Select watch",
-        "data": { "device_id": "Watch" }
+        "data": {
+          "device_id": "Watch"
+        }
       }
     },
     "error": {
@@ -22,17 +27,34 @@
   },
   "entity": {
     "sensor": {
-      "battery": { "name": "Battery" },
-      "charger_battery": { "name": "Charger battery" },
-      "last_fix": { "name": "Last location fix" },
-      "firmware": { "name": "Firmware" }
+      "battery": {
+        "name": "Battery"
+      },
+      "charger_battery": {
+        "name": "Charger battery"
+      },
+      "last_fix": {
+        "name": "Last location fix"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "location": {
+        "name": "Location"
+      }
     },
     "binary_sensor": {
-      "emergency": { "name": "SOS / emergency" },
-      "powered_off": { "name": "Powered off" }
+      "emergency": {
+        "name": "SOS / emergency"
+      },
+      "powered_off": {
+        "name": "Powered off"
+      }
     },
     "button": {
-      "request_location": { "name": "Request location" }
+      "request_location": {
+        "name": "Request location"
+      }
     }
   }
 }
